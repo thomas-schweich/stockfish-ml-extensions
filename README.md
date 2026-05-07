@@ -17,6 +17,31 @@ any UCI consumer.
 
 ## Extensions
 
+### `NetSelection` — force one NNUE network for all evaluation
+
+Vanilla Stockfish 18 dynamically picks between the small and big NNUE
+networks based on the position's material balance (`use_smallnet`), and
+optionally re-evaluates small-net results with the big net when the small
+result is close to zero. Useful for playing strength, but introduces
+position-dependent eval-source heterogeneity that's awkward for ML use
+cases — especially distillation labelling, where you want a uniform
+teacher network across the dataset.
+
+UCI option `NetSelection` (combo: `auto | small | large`, default `auto`):
+
+```
+setoption name NetSelection value large
+```
+
+- `auto`  — preserves vanilla SF18 behavior bit-for-bit.
+- `small` — always use the small net, never re-evaluate.
+- `large` — always use the big net, no re-eval needed (it's already big).
+
+Effective for both the standard search path (`go nodes N` and friends —
+read once at `start_searching`, cached on the search worker for the search
+lifetime) and the `evallegal` command below (read fresh on each call).
+Default `auto` means existing callers see no behavior change.
+
 ### `evallegal` — per-legal-move NNUE eval, single line
 
 For every legal move at the current position, plays the move, runs
