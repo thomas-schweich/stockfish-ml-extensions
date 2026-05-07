@@ -124,6 +124,14 @@ Engine::Engine(std::optional<std::string> path) :
 
     options.add("UCI_ShowWDL", Option(false));
 
+    // stockfish-ml-extensions: NetSelection forces uniform use of one NNUE
+    // network, overriding the default dynamic small/large selection. `auto`
+    // (default) preserves vanilla SF18 behavior; `large` is the natural
+    // choice for distillation labelling (uniform high-quality teacher);
+    // `small` is the lightweight-eval path. Wired to `Eval::evaluate`'s
+    // `NetChoice` parameter via `Search::Worker` and `Engine::eval_legal`.
+    options.add("NetSelection", Option("auto var small var large", "auto"));
+
     options.add(  //
       "SyzygyPath", Option("", [](const Option& o) {
           Tablebases::init(o);
@@ -349,6 +357,19 @@ void Engine::eval_legal() {
     MoveList<LEGAL> legals(pos);
     const bool      in_check = bool(pos.checkers());
 
+    // stockfish-ml-extensions: read NetSelection here too so evallegal honors
+    // the same override the search worker does. Single read per command —
+    // evallegal is called once per ply, not per legal move, so the cost is
+    // negligible vs the per-move NNUE forward.
+    Eval::NetChoice netChoice = Eval::NetChoice::Auto;
+    {
+        const auto& sel = options["NetSelection"];
+        if (sel == "small")
+            netChoice = Eval::NetChoice::Small;
+        else if (sel == "large")
+            netChoice = Eval::NetChoice::Large;
+    }
+
     if (legals.size() == 0)
     {
         sync_cout << "info string evallegal " << (in_check ? "mate" : "stalemate")
@@ -368,7 +389,7 @@ void Engine::eval_legal() {
         // Eval::evaluate returns side-to-move POV; after do_move side has flipped,
         // so the value is from the opponent's POV. Negate to express each move's
         // score from the original mover's POV (matching `info ... score cp N`).
-        Value v  = Eval::evaluate(*networks, pos, *accumulators, *caches, VALUE_ZERO);
+        Value v  = Eval::evaluate(*networks, pos, *accumulators, *caches, VALUE_ZERO, netChoice);
         v        = -v;
         // Emit BOTH the raw internal Value (`v`) and the normalized centipawns
         // (`cp = to_cp(v, pos)`). Raw v is what the network actually produces

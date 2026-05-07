@@ -44,13 +44,23 @@ class AccumulatorStack;
 
 std::string trace(Position& pos, const Eval::NNUE::Networks& networks);
 
+// stockfish-ml-extensions: lets callers override the dynamic small/large
+// network selection that `evaluate()` performs by default. `Auto` (the
+// default) preserves vanilla SF18 behavior — pick small when the simple
+// material eval is large enough, optionally re-evaluate with big when the
+// small-net result is close to zero. `Small` / `Large` force the choice
+// uniformly and skip the re-evaluation. Wired to the `NetSelection` UCI
+// option in engine.cpp (`auto` / `small` / `large`).
+enum class NetChoice { Auto, Small, Large };
+
 int   simple_eval(const Position& pos);
 bool  use_smallnet(const Position& pos);
 Value evaluate(const NNUE::Networks&          networks,
                const Position&                pos,
                Eval::NNUE::AccumulatorStack&  accumulators,
                Eval::NNUE::AccumulatorCaches& caches,
-               int                            optimism);
+               int                            optimism,
+               NetChoice                      choice = NetChoice::Auto);
 }  // namespace Eval
 
 }  // namespace Stockfish

@@ -159,11 +159,19 @@ Option& Option::operator=(const std::string& v) {
 
     if (type == "combo")
     {
+        // stockfish-ml-extensions: dedupe before insert. Upstream's
+        // `OptionsMap::add` `std::exit`s on duplicate keys, which kills the
+        // engine the moment ANY `setoption` lands on a multi-option combo
+        // (the spec `"<default> var <a> var <b> ..."` repeats `var`, and
+        // many real specs would also repeat the default). Using a local
+        // OptionsMap purely for case-insensitive contains-check; the
+        // skip-if-present guard below makes that safe.
         OptionsMap         comboMap;  // To have case insensitive compare
         std::string        token;
         std::istringstream ss(defaultValue);
         while (ss >> token)
-            comboMap.add(token, Option());
+            if (!comboMap.count(token))
+                comboMap.add(token, Option());
         if (!comboMap.count(v) || v == "var")
             return *this;
     }

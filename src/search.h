@@ -32,6 +32,7 @@
 #include <string_view>
 #include <vector>
 
+#include "evaluate.h"
 #include "history.h"
 #include "misc.h"
 #include "nnue/network.h"
@@ -329,6 +330,12 @@ class Worker {
     Value evaluate(const Position&);
 
     LimitsType limits;
+
+    // stockfish-ml-extensions: cached NetSelection choice. Refreshed at the
+    // top of start_searching (UCI forbids `setoption` during search, so the
+    // value is stable for the life of one search). Default Auto preserves
+    // vanilla SF18 behavior.
+    Eval::NetChoice netChoice = Eval::NetChoice::Auto;
 
     size_t                pvIdx, pvLast;
     std::atomic<uint64_t> nodes, tbHits, bestMoveChanges;

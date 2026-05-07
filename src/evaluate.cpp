@@ -54,18 +54,26 @@ Value Eval::evaluate(const Eval::NNUE::Networks&    networks,
                      const Position&                pos,
                      Eval::NNUE::AccumulatorStack&  accumulators,
                      Eval::NNUE::AccumulatorCaches& caches,
-                     int                            optimism) {
+                     int                            optimism,
+                     NetChoice                      choice) {
 
     assert(!pos.checkers());
 
-    bool smallNet           = use_smallnet(pos);
+    // stockfish-ml-extensions: NetChoice overrides the default heuristic.
+    //   Auto  → pick small when material imbalance is large; may re-eval with big.
+    //   Small → always small, never re-eval (uniform fast eval).
+    //   Large → always big, no re-eval needed (uniform high-quality eval).
+    bool smallNet           = (choice == NetChoice::Small)
+                           || (choice == NetChoice::Auto && use_smallnet(pos));
     auto [psqt, positional] = smallNet ? networks.small.evaluate(pos, accumulators, caches.small)
                                        : networks.big.evaluate(pos, accumulators, caches.big);
 
     Value nnue = (125 * psqt + 131 * positional) / 128;
 
-    // Re-evaluate the position when higher eval accuracy is worth the time spent
-    if (smallNet && (std::abs(nnue) < 277))
+    // Re-evaluate the position when higher eval accuracy is worth the time spent.
+    // Skipped under explicit Small (force-small means force-small) and unreachable
+    // under Large (smallNet is always false there). Auto preserves vanilla SF18.
+    if (choice == NetChoice::Auto && smallNet && (std::abs(nnue) < 277))
     {
         std::tie(psqt, positional) = networks.big.evaluate(pos, accumulators, caches.big);
         nnue                       = (125 * psqt + 131 * positional) / 128;

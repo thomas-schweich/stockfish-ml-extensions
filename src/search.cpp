@@ -184,6 +184,20 @@ void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
 
+    // stockfish-ml-extensions: refresh the cached NetSelection choice once
+    // per search. UCI forbids `setoption` mid-search, so a single read here
+    // is enough — every call to `Worker::evaluate()` during this search uses
+    // the cached value and avoids the per-call options-map lookup.
+    {
+        const auto& sel = options["NetSelection"];
+        if (sel == "small")
+            netChoice = Eval::NetChoice::Small;
+        else if (sel == "large")
+            netChoice = Eval::NetChoice::Large;
+        else
+            netChoice = Eval::NetChoice::Auto;
+    }
+
     // Non-main threads go directly to iterative_deepening()
     if (!is_mainthread())
     {
@@ -1753,7 +1767,7 @@ TimePoint Search::Worker::elapsed_time() const { return main_manager()->tm.elaps
 
 Value Search::Worker::evaluate(const Position& pos) {
     return Eval::evaluate(networks[numaAccessToken], pos, accumulatorStack, refreshTable,
-                          optimism[pos.side_to_move()]);
+                          optimism[pos.side_to_move()], netChoice);
 }
 
 namespace {
