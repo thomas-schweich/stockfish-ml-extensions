@@ -31,6 +31,7 @@
 
 #include "evaluate.h"
 #include "misc.h"
+#include "movegen.h"
 #include "nnue/network.h"
 #include "nnue/nnue_common.h"
 #include "nnue/nnue_misc.h"
@@ -334,6 +335,56 @@ void Engine::trace_eval() const {
     verify_networks();
 
     sync_cout << "\n" << Eval::trace(p, *networks) << sync_endl;
+}
+
+// pawn datagen extension. See engine.h for protocol.
+void Engine::eval_legal() {
+    verify_networks();
+
+    // Heap-allocate the NNUE working set — AccumulatorStack alone is ~2.8 MB
+    // and tripping `-Wstack-usage=128000` on the stack. Same pattern as trace_eval.
+    auto accumulators = std::make_unique<Eval::NNUE::AccumulatorStack>();
+    auto caches       = std::make_unique<Eval::NNUE::AccumulatorCaches>(*networks);
+
+    MoveList<LEGAL> legals(pos);
+    const bool      in_check = bool(pos.checkers());
+
+    if (legals.size() == 0)
+    {
+        sync_cout << "info string evallegal " << (in_check ? "mate" : "stalemate")
+                  << sync_endl;
+        return;
+    }
+
+    std::stringstream ss;
+    ss << "info string evallegal " << (in_check ? "check" : "none");
+
+    const bool chess960 = options["UCI_Chess960"];
+    for (Move m : legals)
+    {
+        states->emplace_back();
+        pos.do_move(m, states->back());
+
+        // Eval::evaluate returns side-to-move POV; after do_move side has flipped,
+        // so the value is from the opponent's POV. Negate to express each move's
+        // score from the original mover's POV (matching `info ... score cp N`).
+        Value v  = Eval::evaluate(*networks, pos, *accumulators, *caches, VALUE_ZERO);
+        v        = -v;
+        // Emit BOTH the raw internal Value (`v`) and the normalized centipawns
+        // (`cp = to_cp(v, pos)`). Raw v is what the network actually produces
+        // and is the right target for distillation losses; cp is normalized via
+        // the win-rate-model `a` parameter (so 100 cp ≈ "1 pawn equivalent"
+        // regardless of material) and is the more interpretable unit for sampling
+        // / human inspection.
+        int cp = UCIEngine::to_cp(v, pos);
+
+        pos.undo_move(m);
+        states->pop_back();
+
+        ss << ' ' << UCIEngine::move(m, chess960) << ' ' << cp << ' ' << int(v);
+    }
+
+    sync_cout << ss.str() << sync_endl;
 }
 
 const OptionsMap& Engine::get_options() const { return options; }

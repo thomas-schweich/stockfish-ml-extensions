@@ -95,6 +95,17 @@ class Engine {
 
     void trace_eval() const;
 
+    // pawn datagen extension. For each legal move at the current position,
+    // emit a single line `info string evallegal <status> [<uci> <cp> <v> ...]`
+    // where status is one of {none, check, mate, stalemate}. Bypasses the
+    // search loop entirely — just iterates legal moves and calls Eval::evaluate
+    // on each child position. Per move: `cp` is the normalized centipawn value
+    // (matching the sign convention of `info ... score cp N` lines from a
+    // normal search; `UCIEngine::to_cp(v, pos)`), `v` is the raw internal
+    // Value the NNUE actually produced before normalization. Both are
+    // mover-POV. Distillation should target `v`; sampling typically uses `cp`.
+    void eval_legal();
+
     const OptionsMap& get_options() const;
     OptionsMap&       get_options();
 

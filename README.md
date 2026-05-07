@@ -1,3 +1,103 @@
+# `stockfish-ml-extensions`
+
+A fork of [official-stockfish/Stockfish](https://github.com/official-stockfish/Stockfish)
+pinned to the **Stockfish 18** release (commit
+[`cb3d4ee9`](https://github.com/official-stockfish/Stockfish/commit/cb3d4ee9b47d0c5aae855b12379378ea1439675c),
+tag `sf_18`) hosting small, additive UCI extensions useful for machine-learning
+workflows — supervised data generation, distillation labelling, policy
+extraction, and similar. Built primarily for the
+[PAWN](https://github.com/thomas-schweich/pawn) self-play data pipeline, but
+the extensions are general-purpose and standalone.
+
+Every extension is **purely additive**: the UCI dispatcher gains a new command,
+nothing existing changes. Every standard Stockfish command (`go nodes N`,
+`eval`, `bench`, `position`, the search path, the NNUE weights bundled with
+SF18) is **bit-identical** to vanilla Stockfish 18. Drop-in replacement for
+any UCI consumer.
+
+## Extensions
+
+### `evallegal` — per-legal-move NNUE eval, single line
+
+For every legal move at the current position, plays the move, runs
+`Eval::evaluate` on the resulting position, and undoes the move — emitting a
+single line summarizing all of them:
+
+```
+info string evallegal <status> [<uci> <cp> <v>]...
+```
+
+- `<status>` is one of `none`, `check`, `mate`, `stalemate`.
+- For `none` / `check`, the rest of the line is space-separated triplets
+  `<uci> <cp> <v>`, one per legal move.
+- `<cp>` is the normalized centipawn value (`UCIEngine::to_cp(v, pos)`),
+  matching `info ... score cp N` lines from a normal search.
+- `<v>` is the raw internal `Value` the NNUE produced before normalization —
+  the right target for distillation losses, and the network's actual policy
+  logit before the per-position win-rate-model normalization shrinks
+  magnitudes by `a / 100` ≈ 2–3.5×.
+- Both scores are mover-POV (negated from the post-move side-to-move POV
+  that `Eval::evaluate` returns).
+
+The command bypasses the entire search loop — no thread spawn, no MultiPV
+`info` chatter, no TT/history bookkeeping, no `bestmove` round-trip. Just
+move generation + per-child NNUE forward + undo + one synchronized output.
+
+Example (startpos, where every move evaluates symmetrically):
+
+```
+info string evallegal none a2a3 0 0 b2b3 0 0 ... g1h3 0 0
+```
+
+Example (in-check position with one legal escape):
+
+```
+info string evallegal check h8g8 -510 -1981
+```
+
+Example (terminal positions):
+
+```
+info string evallegal mate
+info string evallegal stalemate
+```
+
+## Compatibility & licensing
+
+All extensions are gated behind new UCI commands or options that vanilla
+Stockfish doesn't recognize — vanilla GUIs and tools see this fork as
+identical to Stockfish 18, and any consumer that *does* know about the new
+commands gets the extra functionality.
+
+GPLv3, inherited from upstream Stockfish (see `Copying.txt`).
+
+## Build
+
+Same as upstream:
+
+```bash
+cd src && make -j build ARCH=x86-64-avx2
+```
+
+Verify the extensions are present:
+
+```
+$ printf 'evallegal\nquit\n' | ./stockfish 2>/dev/null | head
+Stockfish 18 by the Stockfish developers (see AUTHORS file)
+info string evallegal none a2a3 0 0 b2b3 0 0 c2c3 0 0 ... g1h3 0 0
+```
+
+Vanilla SF18 would respond `Unknown command: 'evallegal'` instead.
+
+## Updating from upstream
+
+This fork tracks `sf_18` only. To rebase onto a newer Stockfish release,
+cherry-pick the extension commits onto the new base; each extension is a
+single self-contained commit, and the touched files (`engine.{h,cpp}`,
+`uci.cpp`) don't churn heavily upstream.
+
+---
+
 <div align="center">
 
   [![Stockfish][stockfish128-logo]][website-link]
