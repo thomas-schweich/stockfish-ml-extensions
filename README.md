@@ -42,42 +42,53 @@ read once at `start_searching`, cached on the search worker for the search
 lifetime) and the `evallegal` command below (read fresh on each call).
 Default `auto` means existing callers see no behavior change.
 
-### `evallegal` — per-legal-move NNUE eval, single line
+### `evallegal` — per-legal-move evaluation, single line
 
 For every legal move at the current position, plays the move, runs
-`Eval::evaluate` on the resulting position, and undoes the move — emitting a
-single line summarizing all of them:
+`Eval::evaluate_with_components` on the resulting position, and undoes the
+move — emitting a single line summarizing all of them:
 
 ```
-info string evallegal <status> [<uci> <cp> <v>]...
+info string evallegal <status> [<uci> <cp> <eval_v> <psqt> <positional>]...
 ```
 
 - `<status>` is one of `none`, `check`, `mate`, `stalemate`.
-- For `none` / `check`, the rest of the line is space-separated triplets
-  `<uci> <cp> <v>`, one per legal move.
-- `<cp>` is the normalized centipawn value (`UCIEngine::to_cp(v, pos)`),
-  matching `info ... score cp N` lines from a normal search.
-- `<v>` is the raw internal `Value` the NNUE produced before normalization —
-  the right target for distillation losses, and the network's actual policy
-  logit before the per-position win-rate-model normalization shrinks
-  magnitudes by `a / 100` ≈ 2–3.5×.
-- Both scores are mover-POV (negated from the post-move side-to-move POV
-  that `Eval::evaluate` returns).
+- For `none` / `check`, the rest of the line is space-separated 5-tuples
+  `<uci> <cp> <eval_v> <psqt> <positional>`, one per legal move.
+- `<cp>` — normalized centipawn value (`UCIEngine::to_cp(eval_v, pos)`),
+  matching `info ... score cp N` from a normal search. Win-rate-model
+  `a`-normalized so 100 cp ≈ "1 pawn equivalent" regardless of phase.
+- `<eval_v>` — `Eval::evaluate`'s post-processed `Value` before `to_cp`.
+  Carries head-blend (125/131 mix), complexity damping, material/optimism
+  mix, 50-move shuffling damp, and TB-range clamp. **This is what
+  Stockfish actually plays with**, and the right target for play-policy
+  distillation. Magnitude is roughly `cp × a/100` (≈ 2-3.5× cp depending
+  on position).
+- `<psqt>`, `<positional>` — raw NNUE per-head outputs from
+  `Networks::evaluate()`, before any post-processing. Always pair with
+  the network whose `eval_v` was returned (post any `NetSelection=auto`
+  re-evaluation). **These are the right targets for hot-swap NNUE
+  distillation**, where Stockfish itself applies the post-processing on
+  top — a student trained on `eval_v` would have rule50 / complexity /
+  material baked in and would be applied twice when plugged in.
+- All four scores are mover-POV (negated from the post-move side-to-move POV
+  that `Eval::evaluate_with_components` returns).
 
 The command bypasses the entire search loop — no thread spawn, no MultiPV
 `info` chatter, no TT/history bookkeeping, no `bestmove` round-trip. Just
 move generation + per-child NNUE forward + undo + one synchronized output.
 
-Example (startpos, where every move evaluates symmetrically):
+Example (startpos, every move evaluates symmetrically; values are the SF18
+defaults):
 
 ```
-info string evallegal none a2a3 0 0 b2b3 0 0 ... g1h3 0 0
+info string evallegal none a2a3 0 0 10 -10 b2b3 0 0 10 -10 ... g1h3 0 0 10 -10
 ```
 
 Example (in-check position with one legal escape):
 
 ```
-info string evallegal check h8g8 -510 -1981
+info string evallegal check h8g8 -510 -1981 -1463 -540
 ```
 
 Example (terminal positions):
@@ -86,6 +97,15 @@ Example (terminal positions):
 info string evallegal mate
 info string evallegal stalemate
 ```
+
+#### Which field do you want?
+
+| Use case | Field(s) | Why |
+|---|---|---|
+| Sample a move during self-play | `cp` (or `eval_v`) | Either works; `cp` is more interpretable. |
+| Distill a *play policy* (student plays chess) | `eval_v` | Post-processed `v` is what wins games; rule50 damping in particular teaches the student to break shuffles. |
+| Distill an *NNUE replacement* (hot-swap into SF) | `psqt` + `positional` | Raw heads. Stockfish's `Eval::evaluate` applies post-processing on top — your student must NOT have it baked in. |
+| Interpret what NNUE thinks at a position | `psqt`, `positional` | The two heads, untouched. |
 
 ## Compatibility & licensing
 

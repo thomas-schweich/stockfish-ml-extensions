@@ -61,6 +61,33 @@ Value evaluate(const NNUE::Networks&          networks,
                Eval::NNUE::AccumulatorCaches& caches,
                int                            optimism,
                NetChoice                      choice = NetChoice::Auto);
+
+// stockfish-ml-extensions: same evaluation as `evaluate()`, but also exposes
+// the raw NNUE per-head outputs that fed it. `v` is identical to what
+// `evaluate()` would return (post-processed: head-blend + complexity damp +
+// material/optimism mix + 50-move shuffling damp + TB-range clamp). `psqt`
+// and `positional` are the raw `Value` outputs from `Networks::evaluate()` —
+// post any auto-mode re-evaluation with the big net, so the pair always
+// matches the network whose v was returned. All three are side-to-move POV.
+//
+// Use case: distillation labelling for hot-swap NNUE replacements, where the
+// student must reproduce `(psqt, positional)` and Stockfish itself applies
+// the post-processing on top. Plain policy / play distillation should keep
+// using `evaluate()` — `v` is what makes Stockfish strong, and re-deriving
+// it from `(psqt, positional)` requires reimplementing the post-processing
+// in the consumer.
+struct EvalComponents {
+    Value v;
+    Value psqt;
+    Value positional;
+};
+
+EvalComponents evaluate_with_components(const NNUE::Networks&          networks,
+                                        const Position&                pos,
+                                        Eval::NNUE::AccumulatorStack&  accumulators,
+                                        Eval::NNUE::AccumulatorCaches& caches,
+                                        int                            optimism,
+                                        NetChoice                      choice = NetChoice::Auto);
 }  // namespace Eval
 
 }  // namespace Stockfish

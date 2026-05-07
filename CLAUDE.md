@@ -58,29 +58,57 @@ was removed in `148f50a3`. We don't have the test infrastructure to
 maintain it for this fork's narrow scope, and engine-quality regressions
 should be caught upstream long before they land here.
 
-## The two extensions
+## The extensions
 
-### `evallegal` (UCI command, sf_18-v0.1.0+)
+### `evallegal` (UCI command, sf_18-v0.3.0+)
 
-Per-legal-move NNUE eval emitted as one synchronized line:
+Per-legal-move evaluation emitted as one synchronized line:
 
 ```
-info string evallegal <status> [<uci> <cp> <v>]...
+info string evallegal <status> [<uci> <cp> <eval_v> <psqt> <positional>]...
 ```
 
-- Status: `none | check | mate | stalemate`. For `none` / `check`, triplets
+- Status: `none | check | mate | stalemate`. For `none` / `check`, 5-tuples
   follow; for `mate` / `stalemate`, the line ends after the status.
-- `<cp>` = `UCIEngine::to_cp(v, pos)` (normalized centipawn, matches
+- `<cp>` = `UCIEngine::to_cp(eval_v, pos)` — normalized centipawn (matches
   `info ... score cp N` from a search).
-- `<v>` = raw internal NNUE `Value` before normalization — the right
-  target for distillation losses.
-- Both are mover-POV.
+- `<eval_v>` = `Eval::evaluate`'s post-processed `Value` before `to_cp`. Has
+  head-blend, complexity damping, material/optimism mix, 50-move shuffling
+  damp, and TB-range clamp baked in. **What Stockfish plays with** — the
+  right target for play-policy distillation.
+- `<psqt>`, `<positional>` = raw NNUE per-head outputs from
+  `Networks::evaluate()`, before any post-processing. Pair with whichever
+  network produced the `eval_v` (post any auto-mode re-eval). **The right
+  targets for hot-swap NNUE distillation** — the wrapper applies the
+  post-processing on top, so the student must not have it baked in.
+- All four scores are mover-POV.
 
-Implementation: `src/engine.cpp` (`evallegal_legal_moves`, ~line 360),
+#### Why two value families and not just one
+
+Earlier versions emitted a single `<v>` and called it "the raw NNUE output."
+That was wrong — `v` is `Eval::evaluate`'s *post-processed* value, with
+rule50 / complexity / material / TB-clamp applied. A consumer training a
+hot-swap NNUE replacement against `v` would build a network that has
+post-processing baked in, and Stockfish would then apply it again on top
+(rule50 damping squared, etc.). The split into `eval_v` + `(psqt, positional)`
+makes both downstream goals serviceable from one dataset:
+
+- **Play-policy distillation** (student plays chess) → `eval_v`. rule50
+  damping in particular teaches the student to break shuffles.
+- **Hot-swap NNUE distillation** (student is plugged into SF18 as
+  `networks.big` or `networks.small`) → `(psqt, positional)`.
+
+Implementation: `src/engine.cpp` (`Engine::eval_legal`, ~line 360),
 dispatcher branch in `src/uci.cpp:151`. Bypasses the entire search loop —
 no thread spawn, no MultiPV chatter, no TT/history bookkeeping, no
-`bestmove`. Just `MoveList<LEGAL>` + per-child NNUE forward + undo + one
-`sync_cout`.
+`bestmove`. Just `MoveList<LEGAL>` + per-child
+`Eval::evaluate_with_components` + undo + one `sync_cout`.
+
+`Eval::evaluate_with_components` (in `src/evaluate.cpp`) is a sibling of
+`Eval::evaluate`: same body, returns `EvalComponents{v, psqt, positional}`.
+`Eval::evaluate` is now a one-line wrapper that returns `.v` — search's
+hot path is unaffected (the compiler inlines the wrapper, ABI is unchanged
+for the `Value evaluate(...)` signature search calls).
 
 Heap-allocates `AccumulatorStack` / `AccumulatorCaches` via `unique_ptr`
 (matching the `trace_eval` pattern) — the stack version trips

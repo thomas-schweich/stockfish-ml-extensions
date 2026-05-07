@@ -96,14 +96,24 @@ class Engine {
     void trace_eval() const;
 
     // pawn datagen extension. For each legal move at the current position,
-    // emit a single line `info string evallegal <status> [<uci> <cp> <v> ...]`
+    // emit a single line
+    //   `info string evallegal <status> [<uci> <cp> <eval_v> <psqt> <positional> ...]`
     // where status is one of {none, check, mate, stalemate}. Bypasses the
-    // search loop entirely — just iterates legal moves and calls Eval::evaluate
-    // on each child position. Per move: `cp` is the normalized centipawn value
-    // (matching the sign convention of `info ... score cp N` lines from a
-    // normal search; `UCIEngine::to_cp(v, pos)`), `v` is the raw internal
-    // Value the NNUE actually produced before normalization. Both are
-    // mover-POV. Distillation should target `v`; sampling typically uses `cp`.
+    // search loop entirely — just iterates legal moves and calls
+    // Eval::evaluate_with_components on each child position. Per move:
+    //   - `cp`         = normalized centipawn (`UCIEngine::to_cp(eval_v, pos)`,
+    //                    matching the sign convention of `info ... score cp N`).
+    //   - `eval_v`     = `Eval::evaluate`'s post-processed Value (head-blend +
+    //                    complexity damp + material/optimism mix + 50-move
+    //                    shuffling damp + TB-range clamp). What Stockfish
+    //                    actually plays with — right target for play-policy
+    //                    distillation.
+    //   - `psqt`       = raw NNUE psqt head, before any post-processing.
+    //   - `positional` = raw NNUE positional head, before any post-processing.
+    //                    `(psqt, positional)` together are the right targets
+    //                    for hot-swap NNUE-replacement distillation, where
+    //                    Stockfish itself applies the post-processing on top.
+    // All four values are mover-POV.
     void eval_legal();
 
     const OptionsMap& get_options() const;

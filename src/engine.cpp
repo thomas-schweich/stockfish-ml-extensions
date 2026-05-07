@@ -386,23 +386,42 @@ void Engine::eval_legal() {
         states->emplace_back();
         pos.do_move(m, states->back());
 
-        // Eval::evaluate returns side-to-move POV; after do_move side has flipped,
-        // so the value is from the opponent's POV. Negate to express each move's
-        // score from the original mover's POV (matching `info ... score cp N`).
-        Value v  = Eval::evaluate(*networks, pos, *accumulators, *caches, VALUE_ZERO, netChoice);
-        v        = -v;
-        // Emit BOTH the raw internal Value (`v`) and the normalized centipawns
-        // (`cp = to_cp(v, pos)`). Raw v is what the network actually produces
-        // and is the right target for distillation losses; cp is normalized via
-        // the win-rate-model `a` parameter (so 100 cp ≈ "1 pawn equivalent"
-        // regardless of material) and is the more interpretable unit for sampling
-        // / human inspection.
+        // Eval::evaluate_with_components returns side-to-move POV; after do_move
+        // side has flipped, so the values are from the opponent's POV. Negate
+        // each component to express the move's score from the original mover's
+        // POV (matching `info ... score cp N`). Negation distributes over the
+        // head blend, so negating psqt/positional individually is equivalent
+        // to negating the post-processed `v`.
+        auto [v, psqt, positional] =
+            Eval::evaluate_with_components(*networks, pos, *accumulators, *caches,
+                                           VALUE_ZERO, netChoice);
+        v          = -v;
+        psqt       = -psqt;
+        positional = -positional;
+
+        // Emit four scores per legal move:
+        //   - `cp`         normalized centipawn (`to_cp(v, pos)`, win-rate-model
+        //                  `a`-normalized: 100 cp ≈ "1 pawn equivalent" regardless
+        //                  of material). Most interpretable; right thing for
+        //                  human inspection and (typically) for sampling.
+        //   - `eval_v`     Eval::evaluate's post-processed Value before to_cp.
+        //                  Right target for play-policy distillation — this is
+        //                  what Stockfish plays with.
+        //   - `psqt`       Raw NNUE psqt head (after any auto-mode re-eval, so
+        //                  it always pairs with the network whose `eval_v` was
+        //                  produced).
+        //   - `positional` Raw NNUE positional head, same caveat.
+        // `(psqt, positional)` together are the right targets for hot-swap
+        // NNUE-replacement distillation: Stockfish applies head-blend +
+        // complexity + material + rule50 + TB-clamp itself, so the student
+        // network must NOT have those baked in.
         int cp = UCIEngine::to_cp(v, pos);
 
         pos.undo_move(m);
         states->pop_back();
 
-        ss << ' ' << UCIEngine::move(m, chess960) << ' ' << cp << ' ' << int(v);
+        ss << ' ' << UCIEngine::move(m, chess960) << ' ' << cp << ' ' << int(v) << ' '
+           << int(psqt) << ' ' << int(positional);
     }
 
     sync_cout << ss.str() << sync_endl;

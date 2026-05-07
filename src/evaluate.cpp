@@ -48,14 +48,17 @@ int Eval::simple_eval(const Position& pos) {
 
 bool Eval::use_smallnet(const Position& pos) { return std::abs(simple_eval(pos)) > 962; }
 
-// Evaluate is the evaluator for the outer world. It returns a static evaluation
-// of the position from the point of view of the side to move.
-Value Eval::evaluate(const Eval::NNUE::Networks&    networks,
-                     const Position&                pos,
-                     Eval::NNUE::AccumulatorStack&  accumulators,
-                     Eval::NNUE::AccumulatorCaches& caches,
-                     int                            optimism,
-                     NetChoice                      choice) {
+// stockfish-ml-extensions: full body of `evaluate` lives in
+// `evaluate_with_components`, which additionally exposes the raw NNUE per-head
+// outputs `(psqt, positional)` that were fed into the post-processing. The
+// public `evaluate()` is now a thin wrapper that returns `.v`. The compiler
+// inlines this trivially — search's hot-path call site is unaffected.
+Eval::EvalComponents Eval::evaluate_with_components(const Eval::NNUE::Networks&    networks,
+                                              const Position&                pos,
+                                              Eval::NNUE::AccumulatorStack&  accumulators,
+                                              Eval::NNUE::AccumulatorCaches& caches,
+                                              int                            optimism,
+                                              NetChoice                      choice) {
 
     assert(!pos.checkers());
 
@@ -94,7 +97,18 @@ Value Eval::evaluate(const Eval::NNUE::Networks&    networks,
     // Guarantee evaluation does not hit the tablebase range
     v = std::clamp(v, VALUE_TB_LOSS_IN_MAX_PLY + 1, VALUE_TB_WIN_IN_MAX_PLY - 1);
 
-    return v;
+    return {Value(v), psqt, positional};
+}
+
+// Evaluate is the evaluator for the outer world. It returns a static evaluation
+// of the position from the point of view of the side to move.
+Value Eval::evaluate(const Eval::NNUE::Networks&    networks,
+                     const Position&                pos,
+                     Eval::NNUE::AccumulatorStack&  accumulators,
+                     Eval::NNUE::AccumulatorCaches& caches,
+                     int                            optimism,
+                     NetChoice                      choice) {
+    return evaluate_with_components(networks, pos, accumulators, caches, optimism, choice).v;
 }
 
 // Like evaluate(), but instead of returning a value, it returns
