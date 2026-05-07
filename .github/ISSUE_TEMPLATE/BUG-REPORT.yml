@@ -64,8 +64,8 @@ body:
 - type: input
   attributes:
     label: Fork version / commit
-    description: Tag (e.g. `sf18-v0.2.0`) or commit SHA of the build you're running.
-    placeholder: sf18-v0.2.0 / 777b8807
+    description: Tag (e.g. `sf_18-v0.2.0`) or commit SHA of the build you're running.
+    placeholder: sf_18-v0.2.0 / 777b8807
   validations:
     required: true
 

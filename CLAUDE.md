@@ -60,7 +60,7 @@ should be caught upstream long before they land here.
 
 ## The two extensions
 
-### `evallegal` (UCI command, sf18-v0.1.0+)
+### `evallegal` (UCI command, sf_18-v0.1.0+)
 
 Per-legal-move NNUE eval emitted as one synchronized line:
 
@@ -86,7 +86,7 @@ Heap-allocates `AccumulatorStack` / `AccumulatorCaches` via `unique_ptr`
 (matching the `trace_eval` pattern) — the stack version trips
 `-Wstack-usage=128000` at ~2.8 MB.
 
-### `NetSelection` (UCI option, sf18-v0.2.0+)
+### `NetSelection` (UCI option, sf_18-v0.2.0+)
 
 Combo option `auto | small | large`, default `auto`. Forces uniform use
 of one NNUE network across all evaluation, instead of vanilla SF18's
@@ -168,11 +168,13 @@ Inside this repo:
 2. `CLAUDE.md` "The two extensions" section becomes "The N extensions"
    — document the new entry point, file:line pointers, and any
    non-obvious implementation notes.
-3. **Tag a new release** (`sf18-v0.X.Y` semver: bump minor for
-   additive features, patch for bugfixes). Annotated tags only —
-   downstream pins by SHA but tags exist for humans. Never force-move
-   an existing tag; old PAWN builds depend on `sf18-v0.1.0` and
-   `sf18-v0.2.0` resolving to the same SHAs forever.
+3. **Tag a new release** (`sf_18-vX.Y.Z` — prefix matches upstream's
+   `sf_18` tag exactly; semver: bump minor for additive features,
+   patch for bugfixes). Annotated tags only — downstream pins by SHA
+   but tags exist for humans. Never force-move an existing tag; once
+   `sf_18-v0.1.0` and `sf_18-v0.2.0` are referenced from a published
+   downstream build, those names must keep resolving to the same SHAs
+   forever.
 
 In the **PAWN repo** (`thomas-schweich/pawn`), if PAWN is going to use
 the new capability:
