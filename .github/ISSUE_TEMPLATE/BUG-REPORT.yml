@@ -1,17 +1,46 @@
-name: Report issue
-description: Create a report to help us fix issues with the engine
+name: ML-extension bug report
+description: Report a bug in this fork's ML extensions (`evallegal` UCI command or `NetSelection` UCI option).
 body:
-- type: textarea
+- type: markdown
   attributes:
-    label: Describe the issue
-    description: A clear and concise description of what you're experiencing.
+    value: |
+      ## Scope of this tracker
+
+      This repo only carries two additive extensions on top of upstream
+      Stockfish 18:
+
+      - the `evallegal` UCI command
+      - the `NetSelection` UCI option (`auto | small | large`)
+
+      **Please only open an issue here if the bug is directly related to
+      one of those two extensions.** Anything else — search behavior,
+      eval quality, NNUE strength, vanilla UCI behavior, build/portability
+      issues, etc. — belongs in the
+      [upstream Stockfish issue tracker](https://github.com/official-stockfish/Stockfish/issues/new/choose).
+      We do not patch search or evaluation code in this fork; non-fork
+      issues filed here will be closed and redirected.
+
+- type: checkboxes
+  attributes:
+    label: Confirm scope
+    options:
+      - label: This issue is specific to `evallegal` and/or `NetSelection`. It is not a general Stockfish bug.
+        required: true
+
+- type: dropdown
+  attributes:
+    label: Which extension
+    options:
+      - "`evallegal` UCI command"
+      - "`NetSelection` UCI option"
+      - Both / interaction between the two
   validations:
     required: true
 
 - type: textarea
   attributes:
-    label: Expected behavior
-    description: A clear and concise description of what you expected to happen.
+    label: Describe the issue
+    description: What you observed vs. what you expected from the extension.
   validations:
     required: true
 
@@ -19,47 +48,41 @@ body:
   attributes:
     label: Steps to reproduce
     description: |
-      Steps to reproduce the behavior.
-      You can also use this section to paste the command line output.
+      A minimal UCI session that demonstrates the bug. Include the
+      `position` line, the relevant `setoption` / `evallegal` commands,
+      and the full output.
     placeholder: |
       ```
-      position startpos moves g2g4 e7e5 f2f3
-      go mate 1
-      info string NNUE evaluation using nn-6877cd24400e.nnue enabled
-      info depth 1 seldepth 1 multipv 1 score mate 1 nodes 33 nps 11000 tbhits 0 time 3 pv d8h4
-      bestmove d8h4
+      uci
+      setoption name NetSelection value large
+      position startpos moves e2e4 e7e5
+      evallegal
       ```
+  validations:
+    required: true
+
+- type: input
+  attributes:
+    label: Fork version / commit
+    description: Tag (e.g. `sf18-v0.2.0`) or commit SHA of the build you're running.
+    placeholder: sf18-v0.2.0 / 777b8807
+  validations:
+    required: true
+
+- type: dropdown
+  attributes:
+    label: Operating system
+    options:
+      - Linux
+      - MacOS
+      - Windows
+      - Other or N/A
   validations:
     required: true
 
 - type: textarea
   attributes:
     label: Anything else?
-    description: |
-      Anything that will give us more context about the issue you are encountering.
-      You can also use this section to propose ideas on how to solve the issue. 
+    description: Additional context, hypotheses, or proposed fixes.
   validations:
     required: false
-
-- type: dropdown
-  attributes:
-    label: Operating system
-    options:
-      - All
-      - Windows
-      - Linux
-      - MacOS
-      - Android
-      - Other or N/A
-  validations:
-    required: true
-
-- type: input
-  attributes:
-    label: Stockfish version
-    description: |
-      This can be found by running the engine.
-      You can also use the commit ID.
-    placeholder: Stockfish 15 / e6e324e
-  validations:
-    required: true
