@@ -132,6 +132,15 @@ Engine::Engine(std::optional<std::string> path) :
     // `NetChoice` parameter via `Search::Worker` and `Engine::eval_legal`.
     options.add("NetSelection", Option("auto var small var large", "auto"));
 
+    // stockfish-ml-extensions: skip the TT::clear() that ucinewgame normally
+    // triggers. Useful for datagen workloads where every game runs
+    // ucinewgame (so a 16 MB memset/game is wasted bandwidth at fixed-node
+    // search budgets, where the TT is barely populated). Setting this true
+    // does NOT change the per-game TT semantics — search still uses the
+    // table; it just stops being memset between games. Default false
+    // preserves vanilla behavior.
+    options.add("SkipTTClear", Option(false));
+
     options.add(  //
       "SyzygyPath", Option("", [](const Option& o) {
           Tablebases::init(o);
@@ -177,7 +186,14 @@ void Engine::stop() { threads.stop = true; }
 void Engine::search_clear() {
     wait_for_search_finished();
 
-    tt.clear(threads);
+    // stockfish-ml-extensions: gate the TT memset on `SkipTTClear`. At
+    // datagen workloads with low fixed-node budgets (nodes=1/128/256) the
+    // TT barely fills before the next ucinewgame, so the per-game memset
+    // of the whole `Hash` table is pure wasted bandwidth. Setting
+    // SkipTTClear=true lets the operator opt out of the memset; the TT
+    // is still consulted by search, just not zeroed between games.
+    if (!bool(options["SkipTTClear"]))
+        tt.clear(threads);
     threads.clear();
 
     // @TODO wont work with multiple instances
