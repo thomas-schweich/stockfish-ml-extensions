@@ -322,7 +322,16 @@ std::optional<std::string> Network<Arch, Transformer>::load(std::istream& stream
     initialize();
     std::string description;
 
-    return read_parameters(stream, description) ? std::make_optional(description) : std::nullopt;
+    if (!read_parameters(stream, description))
+        return std::nullopt;
+
+    // stockfish-ml-extensions: hint THP for the feature-transformer weight
+    // arrays now that they're populated. No-op unless SF_NNUE_HUGEPAGE=1
+    // is set; intentionally not a UCI option because it must apply before
+    // any eval and UCI options come in *after* network load.
+    featureTransformer.advise_huge_pages();
+
+    return std::make_optional(description);
 }
 
 
