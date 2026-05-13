@@ -23,9 +23,14 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iosfwd>
 #include <iterator>
+
+#if defined(__linux__) && !defined(NNUE_NO_HUGEPAGE)
+    #include <sys/mman.h>
+#endif
 
 #include "../position.h"
 #include "../types.h"
@@ -149,6 +154,58 @@ class FeatureTransformer {
             w = read ? w * 2 : w / 2;
         for (auto& b : biases)
             b = read ? b * 2 : b / 2;
+    }
+
+    // stockfish-ml-extensions: hint the kernel to back the NNUE weight
+    // arrays with transparent huge pages. On a 380-worker EPYC datagen
+    // pod, the 4 KiB-page TLB working set across the 50+ MiB of weights
+    // dominates feature-transformer cost (see `ANALYSIS.md` in the
+    // stockfish-datagen repo). MADV_HUGEPAGE asks khugepaged to coalesce
+    // 4 KiB pages into 2 MiB ones in the background; the kernel only
+    // promotes 2 MiB-aligned subregions, so the head/tail of each array
+    // (~tens of KiB) stays on 4 KiB pages but the bulk goes to THP.
+    //
+    // Gated on the `SF_NNUE_HUGEPAGE=1` env var so we can A/B without
+    // a rebuild. Linux-only; no-op elsewhere (MADV_HUGEPAGE is a Linux
+    // ABI constant). Idempotent — safe to call once after each load.
+    void advise_huge_pages() {
+#if defined(__linux__) && !defined(NNUE_NO_HUGEPAGE)
+        const char* env = std::getenv("SF_NNUE_HUGEPAGE");
+        if (env == nullptr || env[0] != '1')
+            return;
+        // madvise requires a page-aligned address (Linux returns EINVAL
+        // otherwise). The weight arrays are alignas(CacheLineSize) (64 B),
+        // not page-aligned in general, so we round the start UP to the
+        // next 4 KiB boundary and the end DOWN to a 4 KiB boundary
+        // before calling. The kernel only promotes 2 MiB-aligned
+        // subregions internally anyway, so trimming a sub-page stub
+        // from each end loses no THP coverage that would otherwise have
+        // succeeded — and the call no longer pollutes strace with
+        // ignorable EINVAL noise.
+        constexpr std::size_t page = 4096;
+        auto advise = [](void* p, std::size_t n) {
+            const std::uintptr_t raw_start = reinterpret_cast<std::uintptr_t>(p);
+            const std::uintptr_t raw_end   = raw_start + n;
+            const std::uintptr_t start = (raw_start + page - 1) & ~(page - 1);
+            const std::uintptr_t end   = raw_end & ~(page - 1);
+            if (end <= start)
+                return; // region smaller than one page after alignment
+            // POSIX-compliant ignore-on-failure; older kernels / FS combos
+            // may still reject MADV_HUGEPAGE silently.
+            (void)::madvise(reinterpret_cast<void*>(start),
+                            static_cast<std::size_t>(end - start),
+                            MADV_HUGEPAGE);
+        };
+        advise(biases.data(), biases.size() * sizeof(biases[0]));
+        advise(weights.data(), weights.size() * sizeof(weights[0]));
+        if constexpr (UseThreats)
+            advise(threatWeights.data(),
+                   threatWeights.size() * sizeof(threatWeights[0]));
+        advise(psqtWeights.data(), psqtWeights.size() * sizeof(psqtWeights[0]));
+        if constexpr (UseThreats)
+            advise(threatPsqtWeights.data(),
+                   threatPsqtWeights.size() * sizeof(threatPsqtWeights[0]));
+#endif
     }
 
     // Read network parameters
